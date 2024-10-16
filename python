@@ -1,0 +1,88 @@
+from flask import Flask, request
+from flask_socketio import SocketIO
+import speech_recognition as sr
+import requests
+import google.cloud.texttospeech as tts
+from pydub import AudioSegment
+import io
+
+app = Flask(name)
+socketio = SocketIO(app)
+
+# Настройка DeepL API
+DEEPL_API_KEY = 'YOUR_DEEPL_API_KEY'
+DEEPL_URL = 'https://api.deepl.com/v2/translate'
+
+# Поддерживаемые языки для перевода
+LANGUAGES = {
+    'en': 'English',
+    'tr': 'Turkish',
+    'hi': 'Hindi',
+    'ar': 'Arabic',
+    'es': 'Spanish',
+    'zh': 'Chinese (Mandarin)'
+}
+
+# Функция для распознавания речи
+def transcribe_audio(audio_data):
+    recognizer = sr.Recognizer()
+    audio_segment = AudioSegment.from_file(io.BytesIO(audio_data), format="wav")
+    audio_segment.export("temp.wav", format="wav")
+
+    with sr.AudioFile("temp.wav") as source:
+        audio = recognizer.record(source)
+        try:
+            transcription = recognizer.recognize_google(audio, language='ru-RU')
+            return transcription
+        except sr.UnknownValueError:
+            return None
+        except sr.RequestError:
+            return None
+
+# Функция для перевода текста
+def translate_text(text, target_language):
+    params = {
+        'auth_key': DEEPL_API_KEY,
+        'text': text,
+        'target_lang': target_language.upper()
+    }
+    response = requests.post(DEEPL_URL, data=params)
+    if response.status_code == 200:
+        translation = response.json()['translations'][0]['text']
+        return translation
+    else:
+        return None
+
+# Функция для синтеза речи
+def synthesize_speech(text, language):
+    client = tts.TextToSpeechClient()
+    synthesis_input = tts.SynthesisInput(text=text)
+    voice = tts.VoiceSelectionParams(
+        language_code=language,
+        ssml_gender=tts.SsmlVoiceGender.NEUTRAL
+    )
+    audio_config = tts.AudioConfig(
+        audio_encoding=tts.AudioEncoding.MP3
+    )
+    
+    response = client.synthesize_speech(
+        input=synthesis_input,
+        voice=voice,
+        audio_config=audio_config
+    )
+    return response.audio_content
+
+@socketio.on('audio')
+def handle_audio(data):
+    audio_data = data['audio']  # Получаем аудиоданные
+    transcription = transcribe_audio(audio_data)
+    if transcription:
+        # Переводим текст на целевой язык (например, английский)
+        target_language = 'en'  # Замените на нужный язык
+        translated_text = translate_text(transcription, target_language)
+        if translated_text:
+            audio_content = synthesize_speech(translated_text, target_language)
+            socketio.emit('translated_audio', {'audio': audio_content})
+
+if name == 'main':
+    socketio.run(app, debug=True)
