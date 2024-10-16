@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Streaming with Translation</title>
+</head>
+<body>
+    <h1>Streaming with Real-time Translation</h1>
+    <audio id="audio" controls autoplay></audio>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.min.js"></script>
+    <script>
+        const socket = io();
+
+        // Захват аудио с микрофона
+        navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(stream => {
+                const mediaRecorder = new MediaRecorder(stream);
+                mediaRecorder.start();
+
+                mediaRecorder.ondataavailable = event => {
+                    const audioBlob = event.data;
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        socket.emit('audio', { audio: reader.result.split(',')[1] }); // Отправка аудиофайла на сервер
+                    };
+                    reader.readAsDataURL(audioBlob);
+                };
+            });
+
+        socket.on('translated_audio', (data) => {
+            const audioBlob = new Blob([data.audio], { type: 'audio/mp3' });
+            const audioUrl = URL.createObjectURL(audioBlob);
+            document.getElementById('audio').src = audioUrl; // Воспроизведение переведённого аудио
+        });
+    </script>
+</body>
+</html>
